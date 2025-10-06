@@ -1394,6 +1394,7 @@ export type DSLValidationResult = {
   msg?: string
   detail?: Array<ValidationDetail> | null
   ref?: string | null
+  parsed_inputs?: unknown | null
 }
 
 /**

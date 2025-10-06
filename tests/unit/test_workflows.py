@@ -13,7 +13,7 @@ import os
 import re
 from collections.abc import AsyncGenerator, Callable, Mapping
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Literal
 from uuid import UUID
@@ -54,6 +54,7 @@ from tracecat.dsl.models import (
     RunActionInput,
     ScatterArgs,
 )
+from tracecat.dsl.validation import validate_trigger_inputs
 from tracecat.dsl.workflow import DSLWorkflow
 from tracecat.expressions.common import ExprContext
 from tracecat.identifiers.workflow import (
@@ -119,6 +120,136 @@ def expected(request: pytest.FixtureRequest) -> dict[str, Any]:
         yaml_data = f.read()
     data = yaml.safe_load(yaml_data)
     return {key: (value or {}) for key, value in data.items()}
+
+
+@dataclass(frozen=True)
+class TriggerDefaultCase:
+    description: str
+    expects: dict[str, Any]
+    expected_result: dict[str, Any]
+
+
+@pytest.fixture(
+    params=[
+        TriggerDefaultCase(
+            description="basic-scalars",
+            expects={
+                "name": {"type": "str", "default": "abc"},
+                "count": {"type": "int", "default": 7},
+                "enabled": {"type": "bool", "default": True},
+                "ratio": {"type": "float", "default": 0.5},
+            },
+            expected_result={
+                "name": "abc",
+                "count": 7,
+                "enabled": True,
+                "ratio": 0.5,
+            },
+        ),
+        TriggerDefaultCase(
+            description="temporal-and-optional",
+            expects={
+                "start_time": {
+                    "type": "datetime",
+                    "default": datetime(2024, 1, 1, 12, 0, 0),
+                },
+                "timeout": {"type": "duration", "default": timedelta(minutes=15)},
+                "note": {"type": "str|None", "default": None},
+            },
+            expected_result={
+                "start_time": datetime(2024, 1, 1, 12, 0, 0),
+                "timeout": timedelta(minutes=15),
+                "note": None,
+            },
+        ),
+        TriggerDefaultCase(
+            description="collections",
+            expects={
+                "tags": {"type": "list[str]", "default": ["prod", "west"]},
+                "metadata": {"type": "dict[str, int]", "default": {"count": 1}},
+                "thresholds": {"type": "list[float]", "default": [0.1, 0.5]},
+            },
+            expected_result={
+                "tags": ["prod", "west"],
+                "metadata": {"count": 1},
+                "thresholds": [0.1, 0.5],
+            },
+        ),
+        TriggerDefaultCase(
+            description="enum-and-union",
+            expects={
+                "status": {
+                    "type": 'enum["ready","pending","failed"]',
+                    "default": "ready",
+                },
+                "priority": {"type": "int|str", "default": "high"},
+                "mode": {"type": "Any", "default": {"feature": True}},
+            },
+            expected_result={
+                "status": "ready",
+                "priority": "high",
+                "mode": {"feature": True},
+            },
+        ),
+        TriggerDefaultCase(
+            description="legacy-string-alias",
+            expects={
+                "my_list": {"type": "list[string]", "default": None},
+                "my_param": {"type": "string", "default": "fallback"},
+            },
+            expected_result={
+                "my_list": None,
+                "my_param": "fallback",
+            },
+        ),
+    ],
+    ids=lambda case: case.description,
+)
+def trigger_defaults_case(request: pytest.FixtureRequest) -> TriggerDefaultCase:
+    return request.param
+
+
+def _build_simple_dsl(expects: dict[str, Any]) -> DSLInput:
+    """Construct a minimal DSL with the provided trigger expects schema."""
+
+    return DSLInput(
+        title="Defaults Workflow",
+        description="Workflow for testing trigger defaults",
+        entrypoint=DSLEntrypoint(ref="start", expects=expects),
+        actions=[
+            ActionStatement(
+                ref="start",
+                action="core.transform.reshape",
+                args={"value": "noop"},
+            )
+        ],
+    )
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+def test_validate_trigger_inputs_applies_defaults_to_payload(
+    trigger_defaults_case: TriggerDefaultCase,
+) -> None:
+    dsl = _build_simple_dsl(trigger_defaults_case.expects)
+    payload: dict[str, Any] = {}
+
+    result = validate_trigger_inputs(dsl, payload)
+
+    assert result.status == "success"
+    assert payload == trigger_defaults_case.expected_result
+    assert result.parsed_inputs == trigger_defaults_case.expected_result
+
+
+@pytest.mark.filterwarnings("ignore:Pydantic serializer warnings")
+def test_validate_trigger_inputs_applies_defaults_when_payload_missing(
+    trigger_defaults_case: TriggerDefaultCase,
+) -> None:
+    dsl = _build_simple_dsl(trigger_defaults_case.expects)
+
+    result = validate_trigger_inputs(dsl, None)
+
+    assert result.status == "success"
+    assert result.parsed_inputs == trigger_defaults_case.expected_result
 
 
 @pytest.fixture

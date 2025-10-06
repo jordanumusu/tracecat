@@ -3860,6 +3860,15 @@ export const $DSLValidationResult = {
       ],
       title: "Ref",
     },
+    parsed_inputs: {
+      anyOf: [
+        {},
+        {
+          type: "null",
+        },
+      ],
+      title: "Parsed Inputs",
+    },
   },
   type: "object",
   required: ["status"],

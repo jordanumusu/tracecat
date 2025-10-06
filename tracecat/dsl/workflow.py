@@ -317,6 +317,10 @@ class DSLWorkflow:
                 type=e.__class__.__name__,
             ) from e
 
+        if validation_result.parsed_inputs is not None:
+            trigger_inputs = validation_result.parsed_inputs
+        args.trigger_inputs = trigger_inputs
+
         # Prepare user facing context
 
         self.context: ExecutionContext = {

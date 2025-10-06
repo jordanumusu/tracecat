@@ -10,6 +10,7 @@ from pydantic import BaseModel, Field, RootModel
 from pydantic import ValidationError as PydanticValidationError
 from pydantic_core import to_jsonable_python
 
+from tracecat.dsl.models import TriggerInputs
 from tracecat.expressions.common import ExprType
 
 
@@ -62,6 +63,7 @@ class DSLValidationResult(BaseValidationResult):
     """Result of validating a generic input."""
 
     type: Literal[ValidationResultType.DSL] = ValidationResultType.DSL
+    parsed_inputs: TriggerInputs | None = None
 
 
 class ActionValidationResult(BaseValidationResult):

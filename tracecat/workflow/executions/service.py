@@ -672,6 +672,8 @@ class WorkflowExecutionsService:
             raise TracecatValidationError(
                 validation_result.msg, detail=validation_result.detail
             )
+        if validation_result.parsed_inputs is not None:
+            payload = validation_result.parsed_inputs
         if wf_exec_id is None:
             wf_exec_id = generate_exec_id(wf_id)
 
