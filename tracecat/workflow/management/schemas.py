@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from copy import deepcopy
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from tracecat.expressions.expectations import (
     ExpectedField,
     create_expectation_model,
@@ -101,37 +103,17 @@ def build_trigger_inputs_schema(
     if not expects:
         return None
 
+    # Sanitize first to avoid exceptions and invalid defaults in the schema
+    sanitized = sanitize_expects_types(expects)
+    if not sanitized:
+        return None
+
     # Ensure we are working with validated ``ExpectedField`` instances so we
     # can safely generate the Pydantic model and downstream schema.
-    # While validating, defensively parse each field's type. If parsing fails
-    # (e.g., due to a Lark parsing error), fall back to "Any" so that schema
-    # generation remains resilient and the API/UI can recover gracefully.
-    validated_fields: dict[str, ExpectedField] = {}
-    for field_name, field_schema in expects.items():
-        try:
-            field = ExpectedField.model_validate(field_schema)
-        except Exception as e:  # Extremely defensive: malformed field spec
-            logger.warning(
-                "Invalid ExpectedField spec; defaulting to Any",
-                field_name=field_name,
-                error=str(e),
-            )
-            field = ExpectedField(type="Any")
-
-        # Try parsing the declared type to ensure it's valid. If parsing fails,
-        # default to Any and continue.
-        try:
-            parse_type(field.type, field_name)
-        except Exception as e:
-            logger.warning(
-                "Failed to parse expected field type; defaulting to Any",
-                field_name=field_name,
-                declared_type=field.type,
-                error=str(e),
-            )
-            field = field.model_copy(update={"type": "Any"})
-
-        validated_fields[field_name] = field
+    validated_fields: dict[str, ExpectedField] = {
+        field_name: ExpectedField.model_validate(field_schema)
+        for field_name, field_schema in sanitized.items()
+    }
 
     if not validated_fields:
         return None
@@ -185,8 +167,9 @@ def sanitize_expects_types(
             sanitized[field_name] = {"type": "Any"}
             continue
 
+        # Resolve/normalize dtype
         try:
-            parse_type(field.type, field_name)
+            resolved_type = parse_type(field.type, field_name)
         except Exception as e:
             logger.warning(
                 "Failed to parse expected field type during sanitation; defaulting to Any",
@@ -194,8 +177,32 @@ def sanitize_expects_types(
                 declared_type=field.type,
                 error=str(e),
             )
+            resolved_type = Any
             field = field.model_copy(update={"type": "Any"})
 
-        sanitized[field_name] = field.model_dump(mode="json")
+        # Build sanitized entry
+        sanitized_entry: dict[str, Any] = {"type": field.type}
+        if field.description:
+            sanitized_entry["description"] = field.description
+
+        # Validate default if provided and non-null
+        if "default" in field.model_fields_set:
+            default_value = field.default
+            if default_value is None:
+                # Allow explicit null defaults regardless of dtype
+                sanitized_entry["default"] = None
+            else:
+                try:
+                    TypeAdapter(resolved_type).validate_python(default_value)
+                    sanitized_entry["default"] = default_value
+                except Exception:
+                    logger.warning(
+                        "Default value is incompatible with dtype; dropping default",
+                        field_name=field_name,
+                        declared_type=field.type,
+                        default=default_value,
+                    )
+
+        sanitized[field_name] = sanitized_entry
 
     return sanitized

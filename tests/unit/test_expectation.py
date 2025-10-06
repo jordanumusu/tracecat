@@ -9,6 +9,10 @@ from pydantic import ValidationError
 
 from tracecat.expressions.expectations import ExpectedField, create_expectation_model
 from tracecat.logger import logger
+from tracecat.workflow.management.schemas import (
+    build_trigger_inputs_schema,
+    sanitize_expects_types,
+)
 
 
 def test_validate_schema():
@@ -335,3 +339,36 @@ def test_validate_schema_with_invalid_enum_values(invalid_value):
 
     with pytest.raises(ValidationError):
         DynamicModel(status=invalid_value)
+
+
+def test_sanitize_expects_types_drops_mismatched_default():
+    expects = {
+        "count": {"type": "int", "default": "one"},  # invalid default type
+        "items": {"type": "list[str]", "default": 123},  # invalid default type
+    }
+
+    sanitized = sanitize_expects_types(expects)
+    assert sanitized is not None
+    assert "default" not in sanitized["count"]
+    assert "default" not in sanitized["items"]
+
+
+def test_sanitize_expects_types_keeps_valid_and_null_defaults():
+    expects = {
+        "count": {"type": "int", "default": 1},  # valid default
+        "opt": {"type": "str", "default": None},  # allow null default
+    }
+
+    sanitized = sanitize_expects_types(expects)
+    assert sanitized is not None
+    assert sanitized["count"]["default"] == 1
+    assert "default" in sanitized["opt"] and sanitized["opt"]["default"] is None
+
+
+def test_build_trigger_inputs_schema_handles_invalid_dtype_gracefully():
+    # Invalid dtype (should fall back to Any and still generate a schema)
+    expects = {"bad": {"type": "list[string]"}}
+
+    schema = build_trigger_inputs_schema(expects)
+    assert schema is not None
+    assert "properties" in schema and "bad" in schema["properties"]
