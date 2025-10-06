@@ -54,6 +54,7 @@ from tracecat.workflow.management.models import (
     WorkflowDSLCreateResponse,
     WorkflowUpdate,
 )
+from tracecat.workflow.management.schemas import sanitize_expects_types
 from tracecat.workflow.schedules import bridge
 from tracecat.workflow.schedules.service import WorkflowSchedulesService
 
@@ -337,7 +338,10 @@ class WorkflowsManagementService(BaseService):
         )
         result = await self.session.exec(statement)
         workflow = result.one()
-        for key, value in params.model_dump(exclude_unset=True).items():
+        update_data = params.model_dump(exclude_unset=True)
+        if "expects" in update_data:
+            update_data["expects"] = sanitize_expects_types(update_data["expects"])
+        for key, value in update_data.items():
             # Safe because params has been validated
             setattr(workflow, key, value)
         self.session.add(workflow)
@@ -508,7 +512,7 @@ class WorkflowsManagementService(BaseService):
         return DSLInput(
             title=workflow.title,
             description=workflow.description,
-            entrypoint=DSLEntrypoint(expects=workflow.expects),
+            entrypoint=DSLEntrypoint(expects=sanitize_expects_types(workflow.expects)),
             actions=action_statements,
             config=DSLConfig(**workflow.config),
             returns=workflow.returns,
@@ -562,7 +566,7 @@ class WorkflowsManagementService(BaseService):
             "owner_id": self.role.workspace_id,
             "returns": dsl.returns,
             "config": dsl.config.model_dump(),
-            "expects": entrypoint.get("expects"),
+            "expects": sanitize_expects_types(entrypoint.get("expects")),
         }
         if workflow_id:
             workflow_kwargs["id"] = workflow_id

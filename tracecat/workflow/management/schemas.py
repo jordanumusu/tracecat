@@ -9,7 +9,9 @@ from typing import Any
 from tracecat.expressions.expectations import (
     ExpectedField,
     create_expectation_model,
+    parse_type,
 )
+from tracecat.logger import logger
 
 
 def _inline_schema_refs(node: Any, defs: dict[str, Any] | None) -> bool:
@@ -101,10 +103,35 @@ def build_trigger_inputs_schema(
 
     # Ensure we are working with validated ``ExpectedField`` instances so we
     # can safely generate the Pydantic model and downstream schema.
-    validated_fields = {
-        field_name: ExpectedField.model_validate(field_schema)
-        for field_name, field_schema in expects.items()
-    }
+    # While validating, defensively parse each field's type. If parsing fails
+    # (e.g., due to a Lark parsing error), fall back to "Any" so that schema
+    # generation remains resilient and the API/UI can recover gracefully.
+    validated_fields: dict[str, ExpectedField] = {}
+    for field_name, field_schema in expects.items():
+        try:
+            field = ExpectedField.model_validate(field_schema)
+        except Exception as e:  # Extremely defensive: malformed field spec
+            logger.warning(
+                "Invalid ExpectedField spec; defaulting to Any",
+                field_name=field_name,
+                error=str(e),
+            )
+            field = ExpectedField(type="Any")
+
+        # Try parsing the declared type to ensure it's valid. If parsing fails,
+        # default to Any and continue.
+        try:
+            parse_type(field.type, field_name)
+        except Exception as e:
+            logger.warning(
+                "Failed to parse expected field type; defaulting to Any",
+                field_name=field_name,
+                declared_type=field.type,
+                error=str(e),
+            )
+            field = field.model_copy(update={"type": "Any"})
+
+        validated_fields[field_name] = field
 
     if not validated_fields:
         return None
@@ -130,3 +157,45 @@ def build_trigger_inputs_schema(
             schema.pop("$defs", None)
 
     return schema
+
+
+def sanitize_expects_types(
+    expects: Mapping[str, ExpectedField | dict[str, Any]] | None,
+) -> dict[str, Any] | None:
+    """Validate and sanitize an expects mapping by coercing invalid dtypes to Any.
+
+    This function is intended for persistence-time sanitation so that invalid
+    dtype strings do not propagate into stored Workflow objects or
+    WorkflowDefinitions.
+    """
+
+    if not expects:
+        return None
+
+    sanitized: dict[str, Any] = {}
+    for field_name, field_schema in expects.items():
+        try:
+            field = ExpectedField.model_validate(field_schema)
+        except Exception as e:
+            logger.warning(
+                "Invalid ExpectedField spec during sanitation; defaulting to Any",
+                field_name=field_name,
+                error=str(e),
+            )
+            sanitized[field_name] = {"type": "Any"}
+            continue
+
+        try:
+            parse_type(field.type, field_name)
+        except Exception as e:
+            logger.warning(
+                "Failed to parse expected field type during sanitation; defaulting to Any",
+                field_name=field_name,
+                declared_type=field.type,
+                error=str(e),
+            )
+            field = field.model_copy(update={"type": "Any"})
+
+        sanitized[field_name] = field.model_dump(mode="json")
+
+    return sanitized

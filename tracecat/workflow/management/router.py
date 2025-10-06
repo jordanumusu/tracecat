@@ -253,6 +253,7 @@ async def get_workflow(
         action.id: ActionRead(**action.model_dump()) for action in actions
     }
     # Add webhook/schedules
+    expects_schema = build_trigger_inputs_schema(workflow.expects)
     return WorkflowRead(
         id=WorkflowUUID.new(workflow.id).short(),
         owner_id=workflow.owner_id,
@@ -261,7 +262,7 @@ async def get_workflow(
         status=workflow.status,
         version=workflow.version,
         expects=workflow.expects,
-        expects_schema=build_trigger_inputs_schema(workflow.expects),
+        expects_schema=expects_schema,
         returns=workflow.returns,
         entrypoint=workflow.entrypoint,
         object=workflow.object,
