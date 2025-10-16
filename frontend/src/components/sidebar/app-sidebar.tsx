@@ -1,6 +1,7 @@
 "use client"
 
 import {
+  BotIcon,
   BoxIcon,
   KeyRoundIcon,
   ListTodoIcon,
@@ -78,6 +79,12 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
       url: `${basePath}/workflows`,
       icon: WorkflowIcon,
       isActive: pathname?.startsWith(`${basePath}/workflows`),
+    },
+    {
+      title: "Agents",
+      url: `${basePath}/agents`,
+      icon: BotIcon,
+      isActive: pathname?.startsWith(`${basePath}/agents`),
     },
     {
       title: "Cases",
