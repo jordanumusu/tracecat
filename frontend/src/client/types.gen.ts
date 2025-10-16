@@ -2722,6 +2722,7 @@ export type RegistryActionInterface = {
 
 export type RegistryActionOptions = {
   include_in_schema?: boolean
+  requires_approval?: boolean
 }
 
 /**
