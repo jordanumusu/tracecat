@@ -419,6 +419,7 @@ function ActionSessionStream({ session }: { session: Session_Any_ }) {
               <div key={id}>
                 {parts?.map((part, partIdx) => (
                   <MessagePart
+                    key={`${id}-${partIdx}`}
                     part={part}
                     partIdx={partIdx}
                     id={id}
